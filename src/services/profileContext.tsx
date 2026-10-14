@@ -6,19 +6,19 @@ import type { Profile, UserProfile } from '../types'
 
 const PROFILES: Record<Profile, UserProfile> = {
   coordenacao: {
-    id: 'u1', name: 'Rafael Mendes', role: 'Coordenador', profile: 'coordenacao',
+    id: 'u0', name: 'Usuário', role: 'Coordenador', profile: 'coordenacao',
     subs: [], canAccessFinancial: true,
   },
   lideranca: {
-    id: 'u2', name: 'Ana Beatriz Lima', role: 'Líder – Kairós / Kenosis', profile: 'lideranca',
-    subs: ['kairos', 'kenosis'], canAccessFinancial: false,
+    id: 'u0', name: 'Usuário', role: 'Liderança', profile: 'lideranca',
+    subs: [], canAccessFinancial: false,
   },
   tesouraria: {
-    id: 'u3', name: 'Bruno Carvalho', role: 'Tesoureiro', profile: 'tesouraria',
+    id: 'u0', name: 'Usuário', role: 'Tesouraria', profile: 'tesouraria',
     subs: [], canAccessFinancial: true,
   },
   membro: {
-    id: 'u6', name: 'Eduarda Martins', role: 'Membro', profile: 'membro',
+    id: 'u0', name: 'Usuário', role: 'Membro', profile: 'membro',
     subs: [], canAccessFinancial: false,
   },
 }

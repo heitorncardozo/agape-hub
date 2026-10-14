@@ -81,11 +81,7 @@ export const ColorBadge = ({ label, color }: { label: string; color: string }) =
   <span style={{ color, borderColor: color + '66', background: color + '1F' }}
     className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap">{label}</span>
 
-export const DemoBanner = () =>
-  <div className="mb-4 flex items-center gap-2 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
-    <span className="shrink-0">⚠</span>
-    Dados simulados — demonstração visual. Nenhuma informação é salva em servidor.
-  </div>
+export const DemoBanner = () => null
 
 export const SectionCard = ({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) =>
   <section className="rounded-xl border border-line bg-card p-4">
