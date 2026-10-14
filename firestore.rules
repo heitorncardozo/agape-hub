@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isCreator() {
+      return signedIn() && userDoc().data.isCreator == true;
+    }
+
+    function isCoordinator() {
+      return signedIn() && userDoc().data.role == 'coordenacao';
+    }
+
+    function isGeneralAdmin() {
+      return isCreator() || isCoordinator();
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (uid == request.auth.uid || isGeneralAdmin());
+      allow write: if signedIn() && (uid == request.auth.uid || isGeneralAdmin());
+    }
+
+    match /members/{memberId} {
+      allow read: if signedIn();
+      allow write: if isGeneralAdmin();
+    }
+
+    match /retreats/{retreatId} {
+      allow read: if signedIn();
+      allow write: if isGeneralAdmin();
+    }
+
+    match /retreatParticipants/{participantId} {
+      allow read: if signedIn();
+      allow write: if isGeneralAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
