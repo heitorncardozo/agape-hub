@@ -20,6 +20,13 @@ create table if not exists public.members (
   created_at timestamptz not null default now()
 );
 
+alter table public.members
+  add column if not exists sub text,
+  add column if not exists phone text,
+  add column if not exists birth date,
+  add column if not exists joined date,
+  add column if not exists status text not null default 'Ativo';
+
 create table if not exists public.retreats (
   id uuid primary key default gen_random_uuid(),
   name text not null,

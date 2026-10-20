@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Pencil, Trash2, Search, Users, GraduationCap, HeartHandshake, CalendarPlus2 } from 'lucide-react'
 import type { Row } from '../types'
-import { loadAll, saveAll, useCollection } from '../services/dataService'
+import { supabase } from '../lib/supabase'
+import { loadAll, saveAll } from '../services/dataService'
 import { MEMBERS, RETREATS } from '../data/mockData'
 import { GROUPS, subOf, subsOf } from '../data/groups'
 import { useProfile } from '../services/profileContext'
@@ -19,13 +20,52 @@ const REQ: [string, string][] = [
   ['phone', 'Telefone'], ['birth', 'Data de nascimento'], ['joined', 'Data de entrada'],
 ]
 
+type MemberRecord = {
+  id: string
+  name: string
+  group_name: string | null
+  sub: string | null
+  phone: string | null
+  birth: string | null
+  joined: string | null
+  status: string | null
+}
+
+const fromRecord = (member: MemberRecord): Row => ({
+  id: member.id,
+  name: member.name,
+  group: member.group_name ?? 'cursista',
+  sub: member.sub ?? '',
+  phone: member.phone ?? '',
+  birth: member.birth ?? '',
+  joined: member.joined ?? '',
+  status: member.status ?? 'Ativo',
+})
+
 export default function MembersPage() {
   const { user } = useProfile()
   const navigate = useNavigate()
-  const [items, upsert, remove] = useCollection('members_v2', MEMBERS)
+  const [items, setItems] = useState<Row[]>([])
+  const [errorMsg, setErrorMsg] = useState('')
+  const [saving, setSaving] = useState(false)
   const [q, setQ] = useState(''), [g, setG] = useState(''), [sb, setSb] = useState(''), [page, setPage] = useState(0)
   const [edit, setEdit] = useState<Row | null>(null), [del, setDel] = useState<Row | null>(null), [retreatAction, setRetreatAction] = useState<Row | null>(null)
   const [toast, setToast] = useState(''), [errs, setErrs] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    let active = true
+    const loadMembers = async () => {
+      const { data, error } = await supabase.from('members').select('*').order('name')
+      if (!active) return
+      if (error) {
+        setErrorMsg(`Não foi possível carregar os membros: ${error.message}`)
+        return
+      }
+      setItems((data ?? []).map((member: MemberRecord) => fromRecord(member)))
+    }
+    void loadMembers()
+    return () => { active = false }
+  }, [])
 
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 2200) }
 
@@ -68,13 +108,48 @@ export default function MembersPage() {
 
   const pages = Math.max(1, Math.ceil(shown.length / 8)), cur = shown.slice(page * 8, page * 8 + 8)
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault(); if (!edit) return
     const er: Record<string, string> = {}
     REQ.forEach(([k]) => { if (!edit[k]?.trim()) er[k] = 'Campo obrigatório' })
     if (edit.sub && subOf(edit.sub)?.group !== edit.group) er.sub = 'Subdivisão não pertence ao grupo selecionado'
     setErrs(er); if (Object.keys(er).length) return
-    upsert(edit); setEdit(null); say('Membro salvo localmente')
+    setSaving(true)
+    setErrorMsg('')
+    const { data, error } = await supabase.from('members').upsert({
+      id: edit.id,
+      name: edit.name,
+      group_name: edit.group,
+      sub: edit.sub,
+      phone: edit.phone || null,
+      birth: edit.birth || null,
+      joined: edit.joined || null,
+      status: edit.status,
+    }).select('*').single()
+    setSaving(false)
+    if (error) {
+      setErrorMsg(`Não foi possível salvar o membro: ${error.message}`)
+      return
+    }
+    const saved = fromRecord(data as MemberRecord)
+    setItems(previous => previous.some(member => member.id === saved.id)
+      ? previous.map(member => member.id === saved.id ? saved : member)
+      : [...previous, saved])
+    setEdit(null)
+    say('Membro salvo no Supabase')
+  }
+
+  const deleteMember = async () => {
+    if (!del) return
+    setErrorMsg('')
+    const { error } = await supabase.from('members').delete().eq('id', del.id)
+    if (error) {
+      setErrorMsg(`Não foi possível excluir o membro: ${error.message}`)
+      return
+    }
+    setItems(previous => previous.filter(member => member.id !== del.id))
+    setDel(null)
+    say('Membro excluído')
   }
 
   const set = (k: string, v: string) =>
@@ -95,6 +170,7 @@ export default function MembersPage() {
   return (
     <>
       <DemoBanner />
+      {errorMsg && <p role="alert" className="mb-4 rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{errorMsg}</p>}
       <PageHeader
         title="Membros"
         desc={user.profile === 'lideranca' ? `Membros das suas subdivisões (${user.subs.join(', ')})` : 'Gerencie cursistas e servos da comunidade.'}
@@ -200,7 +276,7 @@ export default function MembersPage() {
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" className={btnGhost} onClick={() => setEdit(null)}>Cancelar</button>
-              <button className={btnPrimary}>Salvar</button>
+              <button className={btnPrimary} disabled={saving}>{saving ? 'Salvando…' : 'Salvar'}</button>
             </div>
           </form>
         </Modal>
@@ -222,7 +298,7 @@ export default function MembersPage() {
           </div>
         </Modal>
       )}
-      {del && <ConfirmDialog text={`Excluir "${del.name}"? Esta ação não pode ser desfeita.`} onCancel={() => setDel(null)} onOk={() => { remove(del.id); setDel(null); say('Membro excluído') }} />}
+      {del && <ConfirmDialog text={`Excluir "${del.name}"? Esta ação não pode ser desfeita.`} onCancel={() => setDel(null)} onOk={() => { void deleteMember() }} />}
       <Toast msg={toast} />
     </>
   )
