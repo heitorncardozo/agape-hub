@@ -20,9 +20,9 @@ const emptyEvent = (): Row => ({
 
 export default function EventsPage() {
   const { user } = useProfile()
-  const [events, upsertEvent, removeEvent] = useCollection('events', EVENTS)
-  const [tasks] = useCollection('tasks', TASKS)
-  const [docs] = useCollection('documents', DOCUMENTS)
+  const [events, upsertEvent, removeEvent, , loading, dataError] = useCollection('events', EVENTS)
+  const [tasks, , , , , tasksError] = useCollection('tasks', TASKS)
+  const [docs, , , , , docsError] = useCollection('documents', DOCUMENTS)
   const [tab, setTab] = useState('Eventos')
   const [q, setQ] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -39,13 +39,19 @@ export default function EventsPage() {
     .filter(e => (!statusFilter || e.status === statusFilter) && (e.title + e.place + e.responsible).toLowerCase().includes(q.toLowerCase()))
     .sort((a, b) => b.date.localeCompare(a.date))
 
-  const submit = () => {
+  const submit = async () => {
     if (!edit) return
     const er: Record<string, string> = {}
     if (!edit.title?.trim()) er.title = 'Campo obrigatório'
     if (!edit.date) er.date = 'Campo obrigatório'
     setErrs(er); if (Object.keys(er).length) return
-    upsertEvent(edit); setEdit(null); say('Evento salvo localmente')
+    try {
+      await upsertEvent(edit)
+      setEdit(null)
+      say('Evento salvo no Supabase')
+    } catch {
+      // The Supabase error is rendered in the form.
+    }
   }
 
   const tasksByEvent = (eid: string) => tasks.filter(t => t.eventId === eid)
@@ -61,6 +67,7 @@ export default function EventsPage() {
         desc="Gerencie eventos internos, responsáveis e acompanhamento."
         action={canEdit ? <button className={btnPrimary} onClick={() => { setErrs({}); setEdit(emptyEvent()) }}><Plus size={16} aria-hidden />Novo evento</button> : undefined}
       />
+      {(dataError || tasksError || docsError) && <p role="alert" className="mb-4 rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{dataError || tasksError || docsError}</p>}
 
       <div className="mb-6 grid gap-4 sm:grid-cols-4">
         <StatCard label="Total" value={events.length} hint="Eventos cadastrados" icon={<CalendarCheck size={18} />} />
@@ -83,7 +90,8 @@ export default function EventsPage() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            {shown.length === 0 && <EmptyState text="Nenhum evento encontrado." />}
+            {loading && <EmptyState text="Carregando eventos do Supabase..." />}
+            {!loading && shown.length === 0 && <EmptyState text="Nenhum evento encontrado." />}
             {shown.map(ev => (
               <div key={ev.id} className="rounded-xl border border-line bg-card p-4 hover:border-accent/40 transition cursor-pointer" onClick={() => setDetail(ev)}>
                 <div className="mb-2 flex items-start justify-between gap-2">
@@ -237,6 +245,7 @@ export default function EventsPage() {
                 <input id="ev-budget" type="number" step="0.01" className={inputCls} value={edit.budget} onChange={e => setEdit({ ...edit, budget: e.target.value })} />
               </div>
             </div>
+            {dataError && <p role="alert" className="rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{dataError}</p>}
             <div className="flex justify-end gap-2 pt-2">
               <button className={btnGhost} onClick={() => setEdit(null)}>Cancelar</button>
               <button className={btnPrimary} onClick={submit}>Salvar</button>
@@ -245,7 +254,15 @@ export default function EventsPage() {
         </Modal>
       )}
 
-      {del && <ConfirmDialog text={`Excluir "${del.title}"? Esta ação não pode ser desfeita.`} onCancel={() => setDel(null)} onOk={() => { removeEvent(del.id); setDel(null); say('Evento excluído') }} />}
+      {del && <ConfirmDialog text={`Excluir "${del.title}"? Esta ação não pode ser desfeita.`} onCancel={() => setDel(null)} onOk={async () => {
+        try {
+          await removeEvent(del.id)
+          setDel(null)
+          say('Evento excluído do Supabase')
+        } catch {
+          setDel(null)
+        }
+      }} />}
       <Toast msg={toast} />
     </>
   )

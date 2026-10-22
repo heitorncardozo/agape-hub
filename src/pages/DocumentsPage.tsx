@@ -20,8 +20,8 @@ const emptyDoc = (): Row => ({
 
 export default function DocumentsPage() {
   const { user } = useProfile()
-  const [docs, upsert, remove] = useCollection('documents', DOCUMENTS)
-  const [events] = useCollection('events', EVENTS)
+  const [docs, upsert, remove, , loading, dataError] = useCollection('documents', DOCUMENTS)
+  const [events, , , , , eventsError] = useCollection('events', EVENTS)
   const [q, setQ] = useState(''), [cat, setCat] = useState(''), [statusFilter, setStatusFilter] = useState('')
   const [edit, setEdit] = useState<Row | null>(null), [del, setDel] = useState<Row | null>(null)
   const [toast, setToast] = useState(''), [errs, setErrs] = useState<Record<string, string>>({})
@@ -35,12 +35,18 @@ export default function DocumentsPage() {
     (d.title + d.uploadedBy).toLowerCase().includes(q.toLowerCase())
   ).sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt))
 
-  const submit = () => {
+  const submit = async () => {
     if (!edit) return
     const er: Record<string, string> = {}
     if (!edit.title?.trim()) er.title = 'Campo obrigatório'
     setErrs(er); if (Object.keys(er).length) return
-    upsert({ ...edit, uploadedBy: edit.uploadedBy || user.name }); setEdit(null); say('Documento registrado localmente')
+    try {
+      await upsert({ ...edit, uploadedBy: edit.uploadedBy || user.name })
+      setEdit(null)
+      say('Documento registrado no Supabase')
+    } catch {
+      // The Supabase error is rendered in the form.
+    }
   }
 
   const getEventTitle = (id: string) => events.find(e => e.id === id)?.title ?? ''
@@ -58,6 +64,7 @@ export default function DocumentsPage() {
         desc="Acesse atas, regulamentos, listas e arquivos da comunidade."
         action={canEdit ? <button className={btnPrimary} onClick={() => { setErrs({}); setEdit(emptyDoc()) }}><Plus size={16} aria-hidden />Adicionar documento</button> : undefined}
       />
+      {(dataError || eventsError) && <p role="alert" className="mb-4 rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{dataError || eventsError}</p>}
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <StatCard label="Total" value={docs.length} hint="Documentos" icon={<FolderOpen size={18} />} />
@@ -82,7 +89,7 @@ export default function DocumentsPage() {
       </div>
 
       <div className="rounded-xl border border-line bg-card overflow-x-auto">
-        {shown.length === 0 ? <EmptyState text="Nenhum documento encontrado." /> : (
+        {loading ? <EmptyState text="Carregando documentos do Supabase..." /> : shown.length === 0 ? <EmptyState text="Nenhum documento encontrado." /> : (
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="border-b border-line text-xs text-mute">
               <tr>
@@ -143,8 +150,9 @@ export default function DocumentsPage() {
                 <option>Ativo</option><option>Arquivado</option>
               </select>
             </div>
+            {dataError && <p role="alert" className="rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{dataError}</p>}
             <p className="rounded-lg border border-line bg-card2 px-3 py-2 text-xs text-mute">
-              ⚠ Upload de arquivos não implementado nesta versão. O registro é salvo localmente.
+              ⚠ Upload de arquivos não implementado nesta versão. Os metadados serão salvos no Supabase.
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <button className={btnGhost} onClick={() => setEdit(null)}>Cancelar</button>
@@ -154,7 +162,15 @@ export default function DocumentsPage() {
         </Modal>
       )}
 
-      {del && <ConfirmDialog text={`Excluir "${del.title}"?`} onCancel={() => setDel(null)} onOk={() => { remove(del.id); setDel(null); say('Documento excluído') }} />}
+      {del && <ConfirmDialog text={`Excluir "${del.title}"?`} onCancel={() => setDel(null)} onOk={async () => {
+        try {
+          await remove(del.id)
+          setDel(null)
+          say('Documento excluído do Supabase')
+        } catch {
+          setDel(null)
+        }
+      }} />}
       <Toast msg={toast} />
     </>
   )

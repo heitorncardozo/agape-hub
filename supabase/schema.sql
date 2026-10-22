@@ -61,6 +61,7 @@ as $$
   select exists (
     select 1 from public.profiles p
     where p.user_id = (select auth.uid())
+      and p.is_active = true
       and (p.role = 'coordenacao' or p.is_creator = true)
   );
 $$;
@@ -75,6 +76,7 @@ as $$
   select exists (
     select 1 from public.profiles p
     where p.user_id = (select auth.uid())
+      and p.is_active = true
       and p.is_creator = true
   );
 $$;
@@ -89,6 +91,8 @@ drop policy if exists "Coordinators can read all profiles" on public.profiles;
 drop policy if exists "Users can update own profile" on public.profiles;
 drop policy if exists "Creator can manage profiles" on public.profiles;
 drop policy if exists "Coordinators and creator can manage members" on public.members;
+drop policy if exists "Authenticated users can read members" on public.members;
+drop policy if exists "Coordinators and leadership can manage members" on public.members;
 drop policy if exists "Coordinators and creator can manage retreats" on public.retreats;
 drop policy if exists "Coordinators and creator can manage retreat participants" on public.retreat_participants;
 
@@ -105,10 +109,30 @@ on public.profiles for all
 using (public.is_creator())
 with check (public.is_creator());
 
-create policy "Coordinators and creator can manage members"
+create policy "Authenticated users can read members"
+on public.members for select
+using (auth.uid() is not null);
+
+create policy "Coordinators and leadership can manage members"
 on public.members for all
-using (public.is_coordinator_or_creator())
-with check (public.is_coordinator_or_creator());
+using (
+  public.is_coordinator_or_creator()
+  or exists (
+    select 1 from public.profiles p
+    where p.user_id = (select auth.uid())
+      and p.role = 'lideranca'
+      and p.is_active = true
+  )
+)
+with check (
+  public.is_coordinator_or_creator()
+  or exists (
+    select 1 from public.profiles p
+    where p.user_id = (select auth.uid())
+      and p.role = 'lideranca'
+      and p.is_active = true
+  )
+);
 
 create policy "Coordinators and creator can manage retreats"
 on public.retreats for all

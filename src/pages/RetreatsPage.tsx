@@ -5,7 +5,7 @@ import {
   Pencil, Plus, Search, Trash2, Users, UsersRound, Wallet, Workflow,
   XCircle, CircleDashed,
 } from 'lucide-react'
-import { loadAll, saveAll } from '../services/dataService'
+import { useCollection, useStoredValue } from '../services/dataService'
 import {
   MEMBERS,
   RETREATS,
@@ -140,7 +140,7 @@ const emptyDocument = (): Row => ({
   date: '',
   responsible: '',
   access: 'Interno',
-  file: 'Simulação local',
+  file: '',
 })
 
 const emptyAttendance = (): Row => ({
@@ -167,15 +167,15 @@ const hasOverlap = (a: Row, b: Row) => {
 export default function RetreatsPage() {
   const { user } = useProfile()
   const location = useLocation()
-  const [retreats, setRetreats] = useState<Row[]>(() => loadAll('retreats', RETREATS))
-  const [activities, setActivities] = useState<Row[]>(() => loadAll('retreat_activities', RETREAT_ACTIVITIES))
-  const [participants, setParticipants] = useState<Row[]>(() => loadAll('retreat_participants', RETREAT_PARTICIPANTS))
-  const [teams, setTeams] = useState<Row[]>(() => loadAll('retreat_teams', RETREAT_TEAMS))
-  const [tasks, setTasks] = useState<Row[]>(() => loadAll('retreat_tasks', RETREAT_TASKS))
-  const [items, setItems] = useState<Row[]>(() => loadAll('retreat_items', RETREAT_ITEMS))
-  const [documents, setDocuments] = useState<Row[]>(() => loadAll('retreat_documents', RETREAT_DOCUMENTS))
-  const [attendance, setAttendance] = useState<Row[]>(() => loadAll('retreat_attendance', RETREAT_ATTENDANCE))
-  const [report, setReport] = useState<Row>(() => loadAll('retreat_report', RETREAT_REPORT))
+  const [retreats, , , replaceRetreats, retreatsLoading, retreatsError] = useCollection('retreats', RETREATS)
+  const [activities, , , replaceActivities, , activitiesError] = useCollection('retreat_activities', RETREAT_ACTIVITIES)
+  const [participants, , , replaceParticipants, , participantsError] = useCollection('retreat_participants', RETREAT_PARTICIPANTS)
+  const [teams, , , replaceTeams, , teamsError] = useCollection('retreat_teams', RETREAT_TEAMS)
+  const [tasks, , , replaceTasks, , tasksError] = useCollection('retreat_tasks', RETREAT_TASKS)
+  const [items, , , replaceItems, , itemsError] = useCollection('retreat_items', RETREAT_ITEMS)
+  const [documents, , , replaceDocuments, , documentsError] = useCollection('retreat_documents', RETREAT_DOCUMENTS)
+  const [attendance, , , replaceAttendance, , attendanceError] = useCollection('retreat_attendance', RETREAT_ATTENDANCE)
+  const [report, saveReport, reportLoading, reportError, setReport] = useStoredValue<Row>('retreat_report', RETREAT_REPORT)
 
   const [selectedId, setSelectedId] = useState<string>(RETREATS[0]?.id ?? '')
   const [search, setSearch] = useState('')
@@ -187,6 +187,8 @@ export default function RetreatsPage() {
   const [deleteRetreat, setDeleteRetreat] = useState<Row | null>(null)
   const [toast, setToast] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [persistenceError, setPersistenceError] = useState('')
+  const dataError = persistenceError || retreatsError || activitiesError || participantsError || teamsError || tasksError || itemsError || documentsError || attendanceError || reportError
 
   const [activityDraft, setActivityDraft] = useState<Row>(() => ({ ...emptyActivity() }))
   const [activityEditId, setActivityEditId] = useState<string | null>(null)
@@ -212,43 +214,29 @@ export default function RetreatsPage() {
     setAttendanceDraft(prev => ({ ...prev, retreatId: selected.id }))
   }, [selected])
 
-  const updateRetreatList = (next: Row[]) => {
-    setRetreats(next)
-    saveAll('retreats', next)
-  }
-  const updateParticipantsList = (next: Row[]) => {
-    setParticipants(next)
-    saveAll('retreat_participants', next)
-  }
-  const updateActivitiesList = (next: Row[]) => {
-    setActivities(next)
-    saveAll('retreat_activities', next)
-  }
-  const updateTeamsList = (next: Row[]) => {
-    setTeams(next)
-    saveAll('retreat_teams', next)
-  }
-  const updateTasksList = (next: Row[]) => {
-    setTasks(next)
-    saveAll('retreat_tasks', next)
-  }
-  const updateItemsList = (next: Row[]) => {
-    setItems(next)
-    saveAll('retreat_items', next)
-  }
-  const updateDocumentsList = (next: Row[]) => {
-    setDocuments(next)
-    saveAll('retreat_documents', next)
-  }
-  const updateAttendanceList = (next: Row[]) => {
-    setAttendance(next)
-    saveAll('retreat_attendance', next)
-  }
-
   const say = (msg: string) => {
     setToast(msg)
     window.setTimeout(() => setToast(''), 2200)
   }
+
+  const persistList = async (save: (rows: Row[]) => Promise<void>, next: Row[], entity: string) => {
+    try {
+      await save(next)
+      setPersistenceError('')
+      return true
+    } catch (error) {
+      setPersistenceError(`Não foi possível salvar ${entity}: ${error instanceof Error ? error.message : String(error)}`)
+      return false
+    }
+  }
+  const updateRetreatList = (next: Row[]) => persistList(replaceRetreats, next, 'o retiro')
+  const updateParticipantsList = (next: Row[]) => persistList(replaceParticipants, next, 'os participantes')
+  const updateActivitiesList = (next: Row[]) => persistList(replaceActivities, next, 'o cronograma')
+  const updateTeamsList = (next: Row[]) => persistList(replaceTeams, next, 'as equipes')
+  const updateTasksList = (next: Row[]) => persistList(replaceTasks, next, 'as tarefas')
+  const updateItemsList = (next: Row[]) => persistList(replaceItems, next, 'os materiais')
+  const updateDocumentsList = (next: Row[]) => persistList(replaceDocuments, next, 'os documentos')
+  const updateAttendanceList = (next: Row[]) => persistList(replaceAttendance, next, 'as presenças')
 
   const requirePermission = (action: string, financial = false) => {
     if (financial && !canAccessFinance) {
@@ -319,7 +307,7 @@ export default function RetreatsPage() {
     return matchesQuery && matchesStatus && matchesPeriod && (!responsibleFilter || retreat.responsible === responsibleFilter)
   })
 
-  const saveRetreatDraft = () => {
+  const saveRetreatDraft = async () => {
     if (!editRetreat) return
     const nextErrors: Record<string, string> = {}
     if (!editRetreat.name?.trim()) nextErrors.name = 'Obrigatório'
@@ -336,10 +324,10 @@ export default function RetreatsPage() {
     const idx = next.findIndex(r => r.id === editRetreat.id)
     if (idx >= 0) next[idx] = { ...editRetreat }
     else next.unshift({ ...editRetreat })
-    updateRetreatList(next)
+    if (!await updateRetreatList(next)) return
     setSelectedId(editRetreat.id)
     setEditRetreat(null)
-    say('Retiro salvo localmente.')
+    say('Retiro salvo no Supabase.')
   }
 
   const openRetreatForm = (retreat?: Row) => {
@@ -351,17 +339,17 @@ export default function RetreatsPage() {
     setEditRetreat(retreat ? { ...retreat } : emptyRetreat())
   }
 
-  const handleCancelRetreat = () => {
+  const handleCancelRetreat = async () => {
     if (!deleteRetreat) return
     if (!requirePermission('cancelar retiro')) return
     const next = retreats.map(r => r.id === deleteRetreat.id ? { ...r, status: 'Cancelado' } : r)
-    updateRetreatList(next)
+    if (!await updateRetreatList(next)) return
     setDeleteRetreat(null)
     setSelectedId(deleteRetreat.id)
     say('Retiro cancelado sem apagar o histórico.')
   }
 
-  const addActivity = () => {
+  const addActivity = async () => {
     if (!selected) return
     if (!requirePermission('salvar cronograma')) return
     const row: Row = { ...activityDraft, retreatId: selected.id }
@@ -370,17 +358,17 @@ export default function RetreatsPage() {
       return
     }
     if (activityEditId) {
-      updateActivitiesList(activities.map(a => a.id === activityEditId ? { ...row, id: activityEditId } : a))
+      if (!await updateActivitiesList(activities.map(a => a.id === activityEditId ? { ...row, id: activityEditId } : a))) return
       say('Atividade atualizada.')
     } else {
-      updateActivitiesList([...activities, row])
+      if (!await updateActivitiesList([...activities, row])) return
       say('Atividade adicionada.')
     }
     setActivityEditId(null)
     setActivityDraft({ ...emptyActivity(), retreatId: selected.id })
   }
 
-  const addParticipant = () => {
+  const addParticipant = async () => {
     if (!selected) return
     if (!participantDraft.name?.trim() && !participantDraft.memberId) {
       say('Selecione ou informe um participante.')
@@ -393,62 +381,62 @@ export default function RetreatsPage() {
       name: participantDraft.name || member?.name || 'Participante externo',
       origin: member ? 'Membro' : participantDraft.origin || 'Externo',
     }
-    updateParticipantsList([...participants, row])
+    if (!await updateParticipantsList([...participants, row])) return
     setParticipantDraft({ ...emptyParticipant(), retreatId: selected.id })
     say('Participante incluído no retiro.')
   }
 
-  const addTeam = () => {
+  const addTeam = async () => {
     if (!selected) return
     if (!teamDraft.name?.trim() || !teamDraft.leader?.trim()) {
       say('Nome e líder da equipe são obrigatórios.')
       return
     }
-    updateTeamsList([...teams, { ...teamDraft, retreatId: selected.id }])
+    if (!await updateTeamsList([...teams, { ...teamDraft, retreatId: selected.id }])) return
     setTeamDraft({ ...emptyTeam(), retreatId: selected.id })
     say('Equipe cadastrada.')
   }
 
-  const addTask = () => {
+  const addTask = async () => {
     if (!selected) return
     if (!taskDraft.title?.trim() || !taskDraft.responsible?.trim()) {
       say('Título e responsável são obrigatórios.')
       return
     }
-    updateTasksList([...tasks, { ...taskDraft, retreatId: selected.id }])
+    if (!await updateTasksList([...tasks, { ...taskDraft, retreatId: selected.id }])) return
     setTaskDraft({ ...emptyTask(), retreatId: selected.id })
     say('Tarefa registrada.')
   }
 
-  const addItem = () => {
+  const addItem = async () => {
     if (!selected) return
     if (!itemDraft.name?.trim()) {
       say('Informe o nome do item.')
       return
     }
-    updateItemsList([...items, { ...itemDraft, retreatId: selected.id }])
+    if (!await updateItemsList([...items, { ...itemDraft, retreatId: selected.id }])) return
     setItemDraft({ ...emptyItem(), retreatId: selected.id })
     say('Item de logística incluído.')
   }
 
-  const addDocument = () => {
+  const addDocument = async () => {
     if (!selected) return
     if (!documentDraft.title?.trim()) {
       say('Informe o título do documento.')
       return
     }
-    updateDocumentsList([...documents, { ...documentDraft, retreatId: selected.id }])
+    if (!await updateDocumentsList([...documents, { ...documentDraft, retreatId: selected.id }])) return
     setDocumentDraft({ ...emptyDocument(), retreatId: selected.id })
-    say('Documento registrado localmente.')
+    say('Documento registrado no Supabase.')
   }
 
-  const addAttendance = () => {
+  const addAttendance = async () => {
     if (!selected) return
     if (!attendanceDraft.participantId || !attendanceDraft.participantName) {
       say('Selecione um participante para registrar presença.')
       return
     }
-    updateAttendanceList([...attendance, { ...attendanceDraft, retreatId: selected.id }])
+    if (!await updateAttendanceList([...attendance, { ...attendanceDraft, retreatId: selected.id }])) return
     setAttendanceDraft({ ...emptyAttendance(), retreatId: selected.id })
     say('Registro de presença atualizado.')
   }
@@ -747,7 +735,7 @@ export default function RetreatsPage() {
           <select value={documentDraft.category ?? 'Programação'} onChange={e => setDocumentDraft({ ...documentDraft, category: e.target.value })} className={inputCls}>{['Programação', 'Orientações', 'Autorizações', 'Listas', 'Comprovantes', 'Relatório final'].map(v => <option key={v} value={v}>{v}</option>)}</select>
           <input type="date" value={documentDraft.date ?? ''} onChange={e => setDocumentDraft({ ...documentDraft, date: e.target.value })} className={inputCls} />
           <select value={documentDraft.access ?? 'Interno'} onChange={e => setDocumentDraft({ ...documentDraft, access: e.target.value })} className={inputCls}>{DOCUMENT_CLASS.map(v => <option key={v} value={v}>{v}</option>)}</select>
-          <input value={documentDraft.file ?? 'Simulação local'} onChange={e => setDocumentDraft({ ...documentDraft, file: e.target.value })} className={inputCls} placeholder="Arquivo / registro associado" />
+          <input value={documentDraft.file ?? ''} onChange={e => setDocumentDraft({ ...documentDraft, file: e.target.value })} className={inputCls} placeholder="Arquivo / registro associado" />
           <div className="md:col-span-2"><textarea value={documentDraft.description ?? ''} onChange={e => setDocumentDraft({ ...documentDraft, description: e.target.value })} rows={2} className={inputCls} placeholder="Descrição" /></div>
         </div>
         <div className="mt-3 flex justify-end"><button className={btnPrimary} onClick={addDocument}>Adicionar documento</button></div>
@@ -821,7 +809,7 @@ export default function RetreatsPage() {
   const renderReport = () => (
     <div className="space-y-4">
       <SectionCard title="Resumo final do retiro">
-        <textarea value={report?.summary ?? ''} onChange={e => setReport({ ...report, summary: e.target.value })} rows={10} className={inputCls} placeholder="Descreva atividades realizadas, presença, pendências e observações finais." />
+        <textarea value={report?.summary ?? ''} onChange={e => setReport({ ...report, summary: e.target.value })} disabled={reportLoading} rows={10} className={inputCls} placeholder="Descreva atividades realizadas, presença, pendências e observações finais." />
       </SectionCard>
 
       <div className="rounded-xl border border-line bg-card p-4">
@@ -831,7 +819,15 @@ export default function RetreatsPage() {
           <div><label className="mb-1 block text-xs text-mute">Prestação de contas</label><div className="rounded-lg border border-line bg-card2 px-3 py-2 text-sm">{selected?.financialStatus || 'Em preparação'}</div></div>
         </div>
         <div className="mt-4 flex justify-end">
-          <button className={btnPrimary} onClick={() => { if (!requirePermission('concluir relatório final')) return; say('Relatório final simulado como concluído, sem apagar o histórico.'); }}>Concluir relatório</button>
+          <button className={btnPrimary} disabled={reportLoading} onClick={async () => {
+            if (!requirePermission('concluir relatório final')) return
+            try {
+              await saveReport(report)
+              say('Relatório final salvo no Supabase.')
+            } catch {
+              // The hook exposes the Supabase error below.
+            }
+          }}>Salvar relatório</button>
         </div>
       </div>
     </div>
@@ -866,6 +862,7 @@ export default function RetreatsPage() {
           </div>
         }
       />
+      {dataError && <p role="alert" className="mb-4 rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{dataError}</p>}
 
       <div className="mb-4 grid gap-4 lg:grid-cols-[1.1fr_2fr]">
         <div className="rounded-xl border border-line bg-card p-4">
@@ -881,7 +878,7 @@ export default function RetreatsPage() {
           </div>
 
           <div className="mt-4 space-y-3 max-h-[520px] overflow-y-auto pr-1">
-            {visibleRetreats.length === 0 && <EmptyState text="Nenhum retiro encontrado." />}
+            {retreatsLoading ? <EmptyState text="Carregando retiros do Supabase..." /> : visibleRetreats.length === 0 && <EmptyState text="Nenhum retiro encontrado." />}
             {visibleRetreats.map(retreat => (
               <button key={retreat.id} onClick={() => setSelectedId(retreat.id)} className={`w-full rounded-xl border p-3 text-left transition ${selected?.id === retreat.id ? 'border-accent bg-card2' : 'border-line bg-card hover:bg-card2'}`}>
                 <div className="flex items-center justify-between gap-2">
@@ -956,6 +953,7 @@ export default function RetreatsPage() {
             <input value={editRetreat.budgetActual ?? '0'} onChange={e => setEditRetreat({ ...editRetreat, budgetActual: e.target.value })} className={inputCls} placeholder="Orçamento realizado" />
           </div>
           <div className="mt-5 flex justify-end gap-2">
+            {dataError && <p role="alert" className="mr-auto rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{dataError}</p>}
             {Object.keys(errors).length > 0 && <span className="mr-auto text-xs text-err">Corrija os campos marcados.</span>}
             <button className={btnGhost} onClick={() => setEditRetreat(null)}>Cancelar</button>
             <button className={btnPrimary} onClick={saveRetreatDraft}>Salvar</button>

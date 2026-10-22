@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Pencil, Trash2, Search, Users, GraduationCap, HeartHandshake, CalendarPlus2 } from 'lucide-react'
 import type { Row } from '../types'
 import { supabase } from '../lib/supabase'
-import { loadAll, saveAll } from '../services/dataService'
+import { useCollection } from '../services/dataService'
 import { MEMBERS, RETREATS } from '../data/mockData'
 import { GROUPS, subOf, subsOf } from '../data/groups'
 import { useProfile } from '../services/profileContext'
@@ -45,6 +45,8 @@ const fromRecord = (member: MemberRecord): Row => ({
 export default function MembersPage() {
   const { user } = useProfile()
   const navigate = useNavigate()
+  const [retreats, , , , retreatsLoading, retreatsError] = useCollection('retreats', RETREATS)
+  const [participants, upsertParticipant, , , , participantsError] = useCollection('retreat_participants', [])
   const [items, setItems] = useState<Row[]>([])
   const [errorMsg, setErrorMsg] = useState('')
   const [saving, setSaving] = useState(false)
@@ -69,16 +71,15 @@ export default function MembersPage() {
 
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 2200) }
 
-  const handleSendToRetreat = (member: Row, retreatId: string) => {
-    const retreat = RETREATS.find(item => item.id === retreatId)
+  const handleSendToRetreat = async (member: Row, retreatId: string) => {
+    const retreat = retreats.find(item => item.id === retreatId)
     if (!retreat) return
 
-    const participants = loadAll<Row[]>('retreat_participants', [])
     const existing = participants.find(item => item.retreatId === retreat.id && item.memberId === member.id)
 
-    const next = existing
-      ? participants.map(item => item.id === existing.id ? { ...item, status: 'Confirmado', group: member.group, notes: 'Confirmado a partir da aba de Membros.' } : item)
-      : [...participants, {
+    const participant: Row = existing
+      ? { ...existing, status: 'Confirmado', group: member.group, notes: 'Confirmado a partir da aba de Membros.' }
+      : {
           id: crypto.randomUUID(),
           retreatId: retreat.id,
           memberId: member.id,
@@ -89,9 +90,14 @@ export default function MembersPage() {
           email: '',
           phone: member.phone,
           notes: 'Confirmado a partir da aba de Membros.',
-        }]
+        }
 
-    saveAll('retreat_participants', next)
+    try {
+      await upsertParticipant(participant)
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : String(error))
+      return
+    }
     setRetreatAction(null)
     say(`${member.name} foi confirmado no retiro ${retreat.name}.`)
     navigate('/retiros', { state: { openRetreatId: retreat.id } })
@@ -145,6 +151,7 @@ export default function MembersPage() {
     const { error } = await supabase.from('members').delete().eq('id', del.id)
     if (error) {
       setErrorMsg(`Não foi possível excluir o membro: ${error.message}`)
+      setDel(null)
       return
     }
     setItems(previous => previous.filter(member => member.id !== del.id))
@@ -170,7 +177,7 @@ export default function MembersPage() {
   return (
     <>
       <DemoBanner />
-      {errorMsg && <p role="alert" className="mb-4 rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{errorMsg}</p>}
+      {(errorMsg || participantsError || retreatsError) && <p role="alert" className="mb-4 rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{errorMsg || participantsError || retreatsError}</p>}
       <PageHeader
         title="Membros"
         desc={user.profile === 'lideranca' ? `Membros das suas subdivisões (${user.subs.join(', ')})` : 'Gerencie cursistas e servos da comunidade.'}
@@ -206,7 +213,7 @@ export default function MembersPage() {
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-line bg-card">
-        {cur.length === 0 ? <EmptyState text="Nenhum membro encontrado." /> : (
+        {items.length === 0 && !errorMsg ? <EmptyState text="Carregando membros do Supabase..." /> : cur.length === 0 ? <EmptyState text="Nenhum membro encontrado." /> : (
           <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="border-b border-line text-xs text-mute">
               <tr>{['Nome', 'Grupo', 'Subdivisão', 'Telefone', 'Situação', 'Ações'].map(h => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr>
@@ -250,6 +257,7 @@ export default function MembersPage() {
       {edit && (
         <Modal title={items.some(i => i.id === edit.id) ? 'Editar membro' : 'Adicionar membro'} onClose={() => setEdit(null)}>
           <form onSubmit={submit} noValidate className="space-y-3">
+            {errorMsg && <p role="alert" className="rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{errorMsg}</p>}
             {fld('name', 'Nome completo')}
             <div>
               <label htmlFor="group" className="mb-1 block text-sm">Grupo *</label>
@@ -284,7 +292,8 @@ export default function MembersPage() {
       {retreatAction && (
         <Modal title={`Confirmar ${retreatAction.name} no retiro`} onClose={() => setRetreatAction(null)}>
           <div className="space-y-3">
-            {RETREATS.length === 0 ? <EmptyState text="Nenhum retiro cadastrado." /> : RETREATS.map(retreat => (
+            {errorMsg && <p role="alert" className="rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{errorMsg}</p>}
+            {retreatsLoading ? <EmptyState text="Carregando retiros do Supabase..." /> : retreats.length === 0 ? <EmptyState text="Nenhum retiro cadastrado." /> : retreats.map(retreat => (
               <button key={retreat.id} type="button" className="w-full rounded-xl border border-line bg-card2 p-3 text-left transition hover:border-accent hover:bg-card" onClick={() => handleSendToRetreat(retreatAction, retreat.id)}>
                 <div className="flex items-center justify-between gap-2">
                   <div>

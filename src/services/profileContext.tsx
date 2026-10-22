@@ -26,63 +26,90 @@ const PROFILES: Record<Profile, UserProfile> = {
 interface ProfileCtx {
   user: UserProfile
   setProfile: (p: Profile) => void
+  profileLoading: boolean
+  profileError: string
 }
 
 const Ctx = createContext<ProfileCtx | null>(null)
 
 export function ProfileProvider({ children }: { children: ReactNode }) {
-  const [profile, setProfile] = useState<Profile>('coordenacao')
+  const [profile, setProfile] = useState<Profile>('membro')
   const [supabaseUser, setSupabaseUser] = useState<UserProfile | null>(null)
+  const [profileLoading, setProfileLoading] = useState(true)
+  const [profileError, setProfileError] = useState('')
 
   useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    let active = true
+    let pendingProfileLoad: number | undefined
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (pendingProfileLoad !== undefined) window.clearTimeout(pendingProfileLoad)
       if (!session?.user) {
         setSupabaseUser(null)
+        setProfileError('')
+        setProfileLoading(false)
         return
       }
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .maybeSingle()
+      setProfileLoading(true)
+      setProfileError('')
 
-      if (!error && data) {
-        setSupabaseUser({
-          id: data.user_id,
-          name: data.name || session.user.email || 'Usuário',
-          role: data.role || 'membro',
-          profile: data.role || 'membro',
-          subs: [],
-          canAccessFinancial: Boolean(data.is_creator || data.role === 'coordenacao'),
-          email: session.user.email || data.email,
-          isCreator: Boolean(data.is_creator),
-          isActive: data.is_active ?? true,
-        })
-        return
-      }
+      // Query after the auth callback returns to avoid waiting on Supabase's auth lock.
+      pendingProfileLoad = window.setTimeout(() => {
+        void (async () => {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .maybeSingle()
 
-      setSupabaseUser({
-        id: session.user.id,
-        name: session.user.email || 'Usuário',
-        role: 'coordenacao',
-        profile: 'coordenacao',
-        subs: [],
-        canAccessFinancial: true,
-        email: session.user.email || '',
-        isCreator: true,
-        isActive: true,
-      })
+          if (!active) return
+          if (error) {
+            setSupabaseUser(null)
+            setProfileError(`Não foi possível carregar seu perfil no Supabase: ${error.message} (${error.code ?? 'sem código'}).`)
+            setProfileLoading(false)
+            return
+          }
+          if (!data) {
+            setSupabaseUser(null)
+            setProfileError('Sua conta autenticou, mas não tem um perfil cadastrado em public.profiles. Cadastre seu perfil antes de salvar dados.')
+            setProfileLoading(false)
+            return
+          }
+
+          const role: Profile = data.is_creator || data.role === 'coordenacao'
+            ? 'coordenacao'
+            : data.role === 'lideranca' || data.role === 'tesouraria' || data.role === 'membro'
+              ? data.role
+              : 'membro'
+          const isActive = data.is_active === true
+          setSupabaseUser({
+            id: data.user_id,
+            name: data.name || session.user.email || 'Usuário',
+            role,
+            profile: role,
+            subs: [],
+            canAccessFinancial: isActive && Boolean(data.is_creator || role === 'coordenacao' || role === 'tesouraria'),
+            email: session.user.email || data.email,
+            isCreator: Boolean(data.is_creator),
+            isActive,
+          })
+          if (!isActive) setProfileError('Seu perfil no Supabase está inativo. Peça à coordenação para ativá-lo antes de salvar dados.')
+          setProfileLoading(false)
+        })()
+      }, 0)
     })
 
     return () => {
+      active = false
+      if (pendingProfileLoad !== undefined) window.clearTimeout(pendingProfileLoad)
       authListener.subscription.unsubscribe()
     }
   }, [])
 
   const currentUser = supabaseUser ?? PROFILES[profile]
 
-  return <Ctx.Provider value={{ user: currentUser, setProfile }}>{children}</Ctx.Provider>
+  return <Ctx.Provider value={{ user: currentUser, setProfile, profileLoading, profileError }}>{children}</Ctx.Provider>
 }
 
 export function useProfile() {

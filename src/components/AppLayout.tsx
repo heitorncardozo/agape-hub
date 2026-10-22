@@ -40,7 +40,7 @@ const ALL_GROUPS: NavGroup[] = [
 export default function AppLayout() {
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
-  const { user } = useProfile()
+  const { user, profileLoading, profileError } = useProfile()
 
   const visibleGroups = ALL_GROUPS.map(([g, items]) => [
     g,
@@ -108,7 +108,10 @@ export default function AppLayout() {
           </div>
           <Avatar name={user.name} />
         </header>
-        <main className="mx-auto max-w-6xl p-4 sm:p-6"><Outlet /></main>
+        <main className="mx-auto max-w-6xl p-4 sm:p-6">
+          {!profileLoading && profileError && <p role="alert" className="mb-4 rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{profileError}</p>}
+          <Outlet />
+        </main>
       </div>
     </div>
   )

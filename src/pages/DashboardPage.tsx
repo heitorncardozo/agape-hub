@@ -1,45 +1,22 @@
-import { useEffect, useState } from 'react'
 import {
   Users, CheckCircle2, CalendarDays, MapPin, GraduationCap, HeartHandshake,
   DollarSign, CalendarCheck, TrendingUp, TrendingDown, AlertCircle,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { useCollection, loadAll } from '../services/dataService'
+import { useCollection, useMembers, useStoredValue } from '../services/dataService'
 import { MEETINGS, EVENTS, TRANSACTIONS } from '../data/mockData'
-import { supabase } from '../lib/supabase'
 import { SUBS, GROUPS } from '../data/groups'
 import { btnPrimary, ColorBadge, PageHeader, StatCard, StatusBadge, fmtBRL, fmtDate } from '../components/ui'
 import { useProfile } from '../services/profileContext'
-import type { Attendance, Row } from '../types'
+import type { Attendance } from '../types'
 
 export default function DashboardPage() {
   const { user } = useProfile()
-  const [members, setMembers] = useState<Row[]>([])
-  const [membersError, setMembersError] = useState('')
-  const [meets] = useCollection('meetings', MEETINGS)
-  const [events] = useCollection('events', EVENTS)
-  const [transactions] = useCollection('transactions', TRANSACTIONS)
-  const att = loadAll<Attendance>('attendance', {})
-
-  useEffect(() => {
-    let active = true
-    const loadMembers = async () => {
-      const { data, error } = await supabase.from('members').select('id, name, group_name, sub')
-      if (!active) return
-      if (error) {
-        setMembersError(`Não foi possível carregar os membros: ${error.message}`)
-        return
-      }
-      setMembers((data ?? []).map(member => ({
-        id: member.id,
-        name: member.name,
-        group: member.group_name ?? '',
-        sub: member.sub ?? '',
-      })))
-    }
-    void loadMembers()
-    return () => { active = false }
-  }, [])
+  const [members, , membersError] = useMembers()
+  const [meets, , , , , meetingsError] = useCollection('meetings', MEETINGS)
+  const [events, , , , , eventsError] = useCollection('events', EVENTS)
+  const [transactions, , , , , transactionsError] = useCollection('transactions', TRANSACTIONS)
+  const [att, , , attendanceError] = useStoredValue<Attendance>('attendance', {})
 
   const done = meets.filter(m => m.status === 'Realizado').sort((a, b) => b.date.localeCompare(a.date))[0]
   const present = done ? Object.values(att[done.id] ?? {}).filter(s => s === 'Presente').length : 0
@@ -62,6 +39,8 @@ export default function DashboardPage() {
         action={<Link to="/encontros" className={btnPrimary}><CalendarDays size={16} aria-hidden />+ Novo encontro</Link>}
       />
       {membersError && <p role="alert" className="mb-4 rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{membersError}</p>}
+      {attendanceError && <p role="alert" className="mb-4 rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{attendanceError}</p>}
+      {(meetingsError || eventsError || transactionsError) && <p role="alert" className="mb-4 rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{meetingsError || eventsError || transactionsError}</p>}
 
       {/* Stats */}
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -30,13 +30,13 @@ export default function FinancialPage() {
 
   if (!user.canAccessFinancial) return <Navigate to="/" replace />
 
-  const [transactions, upsertTx, removeTx] = useCollection('transactions', TRANSACTIONS)
-  const [payables] = useCollection('payables', PAYABLES)
-  const [receivables] = useCollection('receivables', RECEIVABLES)
-  const [budgets] = useCollection('budgets', BUDGETS)
-  const [accountability] = useCollection('accountability', ACCOUNTABILITY)
-  const [donations] = useCollection('donations', DONATIONS)
-  const [events] = useCollection('events', EVENTS)
+  const [transactions, upsertTx, removeTx, , loading, dataError] = useCollection('transactions', TRANSACTIONS)
+  const [payables, , , , , payablesError] = useCollection('payables', PAYABLES)
+  const [receivables, , , , , receivablesError] = useCollection('receivables', RECEIVABLES)
+  const [budgets, , , , , budgetsError] = useCollection('budgets', BUDGETS)
+  const [accountability, , , , , accountabilityError] = useCollection('accountability', ACCOUNTABILITY)
+  const [donations, , , , , donationsError] = useCollection('donations', DONATIONS)
+  const [events, , , , , eventsError] = useCollection('events', EVENTS)
 
   const [tab, setTab] = useState('Visão Geral')
   const [q, setQ] = useState(''), [typeFilter, setTypeFilter] = useState(''), [statusFilter, setStatusFilter] = useState('')
@@ -71,13 +71,19 @@ export default function FinancialPage() {
     .reduce((s, t) => s + parseFloat(t.amount || '0'), 0)
 
   /* ── submit ── */
-  const submit = () => {
+  const submit = async () => {
     if (!edit) return
     const er: Record<string, string> = {}
     if (!edit.description?.trim()) er.description = 'Campo obrigatório'
     if (!edit.amount || parseFloat(edit.amount) <= 0) er.amount = 'Valor inválido'
     setErrs(er); if (Object.keys(er).length) return
-    upsertTx(edit); setEdit(null); say('Transação salva localmente')
+    try {
+      await upsertTx(edit)
+      setEdit(null)
+      say('Transação salva no Supabase')
+    } catch {
+      // The Supabase error is rendered in the form.
+    }
   }
 
   const TABS = ['Visão Geral', 'Caixa Geral', 'Por Evento', 'Contas', 'Orçamentos', 'Prestação de Contas', 'Doações']
@@ -90,6 +96,7 @@ export default function FinancialPage() {
         desc="Controle financeiro da comunidade — coordenação e tesouraria."
         action={<button className={btnPrimary} onClick={() => { setErrs({}); setEdit(emptyTx()) }}><Plus size={16} />Nova movimentação</button>}
       />
+      {(dataError || payablesError || receivablesError || budgetsError || accountabilityError || donationsError || eventsError) && <p role="alert" className="mb-4 rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{dataError || payablesError || receivablesError || budgetsError || accountabilityError || donationsError || eventsError}</p>}
 
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
 
@@ -111,6 +118,7 @@ export default function FinancialPage() {
 
           <SectionCard title="Movimentações recentes">
             <div className="space-y-2">
+              {loading && <p className="text-sm text-mute">Carregando dados financeiros do Supabase...</p>}
               {transactions.slice(0, 6).map(t => (
                 <div key={t.id} className="flex items-center gap-3 rounded-lg bg-card2 px-3 py-2">
                   <span className={`text-lg ${t.type === 'entrada' ? 'text-ok' : 'text-err'}`}>{t.type === 'entrada' ? '↑' : '↓'}</span>
@@ -417,6 +425,7 @@ export default function FinancialPage() {
                 {events.map(ev => <option key={ev.id} value={ev.id}>{ev.title}</option>)}
               </select>
             </div>
+            {dataError && <p role="alert" className="rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{dataError}</p>}
             <p className="rounded-lg border border-line bg-card2 px-3 py-2 text-xs text-mute">
               ⚠ Comprovantes são conferidos manualmente nesta versão. Nenhum arquivo é enviado a um servidor.
             </p>
@@ -428,7 +437,15 @@ export default function FinancialPage() {
         </Modal>
       )}
 
-      {del && <ConfirmDialog text={`Excluir "${del.description}"?`} onCancel={() => setDel(null)} onOk={() => { removeTx(del.id); setDel(null); say('Transação excluída') }} />}
+      {del && <ConfirmDialog text={`Excluir "${del.description}"?`} onCancel={() => setDel(null)} onOk={async () => {
+        try {
+          await removeTx(del.id)
+          setDel(null)
+          say('Transação excluída do Supabase')
+        } catch {
+          setDel(null)
+        }
+      }} />}
       <Toast msg={toast} />
     </>
   )

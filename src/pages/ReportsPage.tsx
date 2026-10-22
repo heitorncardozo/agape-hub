@@ -1,5 +1,5 @@
-import { useCollection } from '../services/dataService'
-import { MEMBERS, MEETINGS, EVENTS, TRANSACTIONS, AUDIT_LOGS } from '../data/mockData'
+import { useCollection, useMembers, useStoredValue } from '../services/dataService'
+import { MEETINGS, EVENTS, TRANSACTIONS, AUDIT_LOGS } from '../data/mockData'
 import { useProfile } from '../services/profileContext'
 import {
   DemoBanner, PageHeader, StatCard, SectionCard, ColorBadge, fmtBRL, fmtDate, Tabs,
@@ -8,15 +8,14 @@ import { useState } from 'react'
 import { Users, CalendarDays, DollarSign, TrendingUp, TrendingDown, CheckCircle2, BarChart3 } from 'lucide-react'
 import { SUBS, GROUPS } from '../data/groups'
 import type { Attendance } from '../types'
-import { loadAll } from '../services/dataService'
 
 export default function ReportsPage() {
   const { user } = useProfile()
-  const [members] = useCollection('members_v2', MEMBERS)
-  const [meets] = useCollection('meetings', MEETINGS)
-  const [events] = useCollection('events', EVENTS)
-  const [transactions] = useCollection('transactions', TRANSACTIONS)
-  const att = loadAll<Attendance>('attendance', {})
+  const [members, membersLoading, membersError] = useMembers()
+  const [meets, , , , , meetingsError] = useCollection('meetings', MEETINGS)
+  const [events, , , , , eventsError] = useCollection('events', EVENTS)
+  const [transactions, , , , , transactionsError] = useCollection('transactions', TRANSACTIONS)
+  const [att, , , attendanceError] = useStoredValue<Attendance>('attendance', {})
   const [tab, setTab] = useState('Membros')
 
   /* ─── attendance stats ─── */
@@ -35,6 +34,8 @@ export default function ReportsPage() {
     <>
       <DemoBanner />
       <PageHeader title="Relatórios" desc="Resumos e indicadores consolidados da comunidade." />
+      {(membersError || meetingsError || eventsError || transactionsError || attendanceError) && <p role="alert" className="mb-4 rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{membersError || meetingsError || eventsError || transactionsError || attendanceError}</p>}
+      {membersLoading && <p className="mb-4 text-sm text-mute">Carregando dados do Supabase...</p>}
 
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
 

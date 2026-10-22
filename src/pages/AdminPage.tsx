@@ -19,22 +19,28 @@ const emptyUser = (): Row => ({
 
 export default function AdminPage() {
   const { user } = useProfile()
-  if (user.profile !== 'coordenacao') return <Navigate to="/" replace />
-
-  const [users, upsertUser, removeUser] = useCollection('users', USERS)
+  const [users, upsertUser, removeUser, , loading, dataError] = useCollection('users', USERS)
   const [tab, setTab] = useState('Usuários')
   const [edit, setEdit] = useState<Row | null>(null), [del, setDel] = useState<Row | null>(null)
   const [toast, setToast] = useState(''), [errs, setErrs] = useState<Record<string, string>>({})
 
+  if (user.profile !== 'coordenacao') return <Navigate to="/" replace />
+
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(''), 2200) }
 
-  const submit = () => {
+  const submit = async () => {
     if (!edit) return
     const er: Record<string, string> = {}
     if (!edit.name?.trim()) er.name = 'Campo obrigatório'
     if (!edit.email?.trim()) er.email = 'Campo obrigatório'
     setErrs(er); if (Object.keys(er).length) return
-    upsertUser(edit); setEdit(null); say('Usuário salvo localmente')
+    try {
+      await upsertUser(edit)
+      setEdit(null)
+      say('Usuário salvo no Supabase')
+    } catch {
+      // The Supabase error is rendered in the form.
+    }
   }
 
   const roleColors: Record<string, string> = {
@@ -63,11 +69,12 @@ export default function AdminPage() {
       </div>
 
       <Tabs tabs={['Usuários', 'Permissões', 'Auditoria']} active={tab} onChange={setTab} />
+      {dataError && <p role="alert" className="mb-4 rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{dataError}</p>}
 
       {/* ─── USUÁRIOS ─── */}
       {tab === 'Usuários' && (
         <div className="overflow-x-auto rounded-xl border border-line bg-card">
-          {users.length === 0 ? <EmptyState text="Nenhum usuário." /> : (
+          {loading ? <EmptyState text="Carregando dados do Supabase..." /> : users.length === 0 ? <EmptyState text="Nenhum usuário." /> : (
             <table className="w-full min-w-[680px] text-left text-sm">
               <thead className="border-b border-line text-xs text-mute">
                 <tr>{['Usuário', 'E-mail', 'Perfil', 'Subdivisões', 'Situação', 'Último acesso', 'Ações'].map(h => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr>
@@ -194,7 +201,8 @@ export default function AdminPage() {
                 <option>Ativo</option><option>Inativo</option>
               </select>
             </div>
-            <p className="text-xs text-mute rounded-lg border border-line bg-card2 px-3 py-2">⚠ Permissões simuladas — sem autenticação real nesta versão.</p>
+            {dataError && <p role="alert" className="rounded-lg border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{dataError}</p>}
+            <p className="text-xs text-mute rounded-lg border border-line bg-card2 px-3 py-2">Este formulário salva os dados do perfil no Supabase, mas não cria uma conta de autenticação. O acesso exige uma conta no Supabase Auth e um perfil ativo.</p>
             <div className="flex justify-end gap-2 pt-2">
               <button className={btnGhost} onClick={() => setEdit(null)}>Cancelar</button>
               <button className={btnPrimary} onClick={submit}>Salvar</button>
@@ -202,7 +210,15 @@ export default function AdminPage() {
           </div>
         </Modal>
       )}
-      {del && <ConfirmDialog text={`Excluir "${del.name}"?`} onCancel={() => setDel(null)} onOk={() => { removeUser(del.id); setDel(null); say('Usuário excluído') }} />}
+      {del && <ConfirmDialog text={`Excluir "${del.name}"?`} onCancel={() => setDel(null)} onOk={async () => {
+        try {
+          await removeUser(del.id)
+          setDel(null)
+          say('Usuário excluído do Supabase')
+        } catch {
+          setDel(null)
+        }
+      }} />}
       <Toast msg={toast} />
     </>
   )
